@@ -4,6 +4,10 @@
 
 Inspired by [LiquidAI's LocalCowork](https://github.com/Liquid4All/cookbook/tree/main/examples/localcowork), rebuilt in Python for accessibility and scaled to fit consumer hardware. No cloud APIs, no data leaving your machine, no vendor lock-in.
 
+[![tests](https://github.com/KaungHtetCho-22/localcowork-lite/actions/workflows/pytest.yml/badge.svg)](https://github.com/KaungHtetCho-22/localcowork-lite/actions/workflows/pytest.yml)
+
+![Python](https://img.shields.io/badge/python-3.11-blue)
+
 ---
 
 ## What Is This?
