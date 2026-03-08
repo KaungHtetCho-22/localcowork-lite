@@ -96,6 +96,7 @@ register_tool(
         "required": ["path"],
     },
     handler=list_dir,
+    risk="safe"
 )
 
 register_tool(
@@ -111,6 +112,7 @@ register_tool(
         "required": ["path"],
     },
     handler=read_file,
+    risk="safe"
 )
 
 register_tool(
@@ -126,4 +128,5 @@ register_tool(
         "required": ["directory", "pattern"],
     },
     handler=search_files,
+    risk="safe"
 )

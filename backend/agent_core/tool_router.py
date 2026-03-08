@@ -21,6 +21,7 @@ def register_tool(
     description: str,
     parameters: dict,
     handler: Callable[..., Awaitable[Any]],
+    risk: str = "safe",  # "safe" | "write" | "destructive"
 ) -> None:
     """Called by each MCP server module to register its tools."""
     full_name = f"{server}.{name}"
@@ -31,8 +32,12 @@ def register_tool(
         "description": description,
         "parameters": parameters,
         "handler": handler,
+        "risk":risk
     }
 
+
+def get_risk(tool_name: str) -> str:
+    return _REGISTRY.get(tool_name, {}).get("risk", "safe")
 
 def get_tool_schemas() -> list[dict]:
     """Return OpenAI-compatible tool definitions for all registered tools."""

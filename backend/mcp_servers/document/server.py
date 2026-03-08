@@ -111,6 +111,7 @@ register_tool(
         "required": ["file_path"],
     },
     handler=extract_text,
+    risk="safe"
 )
 
 register_tool(
@@ -126,6 +127,7 @@ register_tool(
         "required": ["file_path_a", "file_path_b"],
     },
     handler=diff_documents,
+    risk="safe"
 )
 
 register_tool(
@@ -142,4 +144,5 @@ register_tool(
         "required": ["title", "content", "output_filename"],
     },
     handler=create_report,
+    risk="write "
 )

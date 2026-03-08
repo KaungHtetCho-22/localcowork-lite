@@ -16,6 +16,7 @@ from backend.agent_core.tool_router import list_tools
 from backend.agent_core.audit import audit
 from backend.inference.client import inference
 from backend.agent_core.db import init_db, list_sessions
+import asyncio
 
 
 # ── Session store (in-memory, one ConversationManager per session) ────────────
@@ -74,7 +75,6 @@ async def get_audit(session_id: str | None = None, limit: int = 50):
     summary = await audit.summary(session_id=session_id)
     return {"entries": entries, "summary": summary}
 
-
 class ResetRequest(BaseModel):
     session_id: str
 
@@ -93,16 +93,6 @@ async def reset_session(req: ResetRequest):
 
 @app.websocket("/ws/chat/{session_id}")
 async def chat_ws(websocket: WebSocket, session_id: str):
-    """
-    WebSocket protocol:
-      Client → {"message": "user text"}
-      Server → stream of JSON events:
-        {"type": "tool_call",   "tool": "...", "arguments": {...}}
-        {"type": "tool_result", "tool": "...", "success": bool, "result": ..., "latency_ms": ...}
-        {"type": "text_delta",  "content": "..."}
-        {"type": "done"}
-        {"type": "error",       "message": "..."}
-    """
     await websocket.accept()
     cm = _get_session(session_id)
 
@@ -110,15 +100,31 @@ async def chat_ws(websocket: WebSocket, session_id: str):
         while True:
             raw = await websocket.receive_text()
             data = json.loads(raw)
+
+            # ── HITL confirmation response ────────────────────────────────
+            if data.get("type") == "confirm":
+                cm.resolve_confirmation(data.get("approved", False))
+                continue
+
+            # ── New user message ──────────────────────────────────────────
             user_message = data.get("message", "").strip()
             if not user_message:
                 continue
 
             try:
-                async for event in cm.turn(user_message):
-                    await websocket.send_text(json.dumps(event))
+                # Run the agent turn in a background task so the WebSocket
+                # receive loop stays free to handle "confirm" messages while
+                # the generator is awaiting confirm_event.wait()
+                async def run_turn():
+                    async for event in cm.turn(user_message):
+                        await websocket.send_text(json.dumps(event))
+
+                asyncio.ensure_future(run_turn())
+
             except Exception as exc:
-                await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
+                await websocket.send_text(
+                    json.dumps({"type": "error", "message": str(exc)})
+                )
 
     except WebSocketDisconnect:
         pass

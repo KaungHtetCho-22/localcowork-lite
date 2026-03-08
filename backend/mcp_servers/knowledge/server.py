@@ -168,6 +168,7 @@ register_tool(
         "required": ["file_path"],
     },
     handler=ingest_document,
+    risk="write"
 )
 
 register_tool(
@@ -183,6 +184,7 @@ register_tool(
         "required": ["query"],
     },
     handler=search,
+    risk="safe"
 )
 
 register_tool(
@@ -191,6 +193,7 @@ register_tool(
     description="List all documents currently in the knowledge base.",
     parameters={"type": "object", "properties": {}},
     handler=list_sources,
+    risk="safe"
 )
 
 register_tool(
@@ -205,6 +208,7 @@ register_tool(
         "required": ["source_id"],
     },
     handler=delete_source,
+    risk="destructive"
 )
 
 register_tool(

@@ -4,7 +4,7 @@ import { SystemInfoChart } from "./components/SystemInfoChart";
 import {
   Brain, Zap, FileText, FolderOpen, Shield,
   ChevronDown, ChevronRight, CheckCircle, XCircle,
-  Loader2, RefreshCw, Activity, Terminal
+  Loader2, RefreshCw, Activity, Terminal, AlertTriangle
 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -22,11 +22,24 @@ type ToolResultEvent = {
   error?: string;
   latency_ms: number;
 };
+type ToolConfirmEvent = {
+  type: "tool_confirm";
+  tool: string;
+  arguments: Record<string, unknown>;
+  tool_call_id: string;
+  risk: "safe" | "write" | "destructive";
+};
 type TextDeltaEvent = { type: "text_delta"; content: string };
-type DoneEvent = { type: "done" };
-type ErrorEvent = { type: "error"; message: string };
+type DoneEvent     = { type: "done" };
+type ErrorEvent    = { type: "error"; message: string };
 
-type AgentEvent = ToolCallEvent | ToolResultEvent | TextDeltaEvent | DoneEvent | ErrorEvent;
+type AgentEvent =
+  | ToolCallEvent
+  | ToolResultEvent
+  | ToolConfirmEvent
+  | TextDeltaEvent
+  | DoneEvent
+  | ErrorEvent;
 
 type ToolTrace = {
   tool: string;
@@ -80,12 +93,87 @@ function parseServer(toolName: string) {
   return toolName.split(".")[0] || "unknown";
 }
 
+// ── ConfirmationDialog ────────────────────────────────────────────────────────
+
+function ConfirmationDialog({
+  event,
+  onDecide,
+}: {
+  event: ToolConfirmEvent;
+  onDecide: (approved: boolean) => void;
+}) {
+  const risk = event.risk;
+
+  const riskBorder = {
+    safe:        "border-emerald-500/40",
+    write:       "border-yellow-500/40",
+    destructive: "border-red-500/40",
+  }[risk];
+
+  const riskMeta = {
+    safe:        { label: "Read-only",    color: "text-emerald-400",  icon: <CheckCircle size={14} /> },
+    write:       { label: "Write action", color: "text-yellow-400",   icon: <AlertTriangle size={14} /> },
+    destructive: { label: "Destructive",  color: "text-red-400",      icon: <XCircle size={14} /> },
+  }[risk];
+
+  const server = parseServer(event.tool);
+  const color  = serverColor(server);
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 px-4 backdrop-blur-sm">
+      <div className={`bg-[#0d1117] border ${riskBorder} rounded-2xl p-6 max-w-md w-full shadow-2xl`}>
+
+        {/* Risk badge */}
+        <div className={`flex items-center gap-2 mb-5 ${riskMeta.color}`}>
+          {riskMeta.icon}
+          <span className="text-xs font-mono uppercase tracking-widest">
+            {riskMeta.label} — confirmation required
+          </span>
+        </div>
+
+        {/* Tool name */}
+        <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Tool</div>
+        <div className="flex items-center gap-2 mb-4">
+          <span style={{ color }} className="flex items-center gap-1.5 font-mono text-sm">
+            {serverIcon(server)} {server}
+          </span>
+          <span className="font-mono text-sm text-slate-200">
+            .{event.tool.split(".").slice(1).join(".")}
+          </span>
+        </div>
+
+        {/* Arguments */}
+        <div className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Arguments</div>
+        <pre className="text-[11px] text-slate-300 bg-black/40 rounded-lg p-3 overflow-x-auto mb-6 max-h-40">
+          {JSON.stringify(event.arguments, null, 2)}
+        </pre>
+
+        {/* Approve / Reject */}
+        <div className="flex gap-3">
+          <button
+            onClick={() => onDecide(true)}
+            className="flex-1 py-2.5 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-400 text-sm font-semibold hover:bg-emerald-500/30 transition-all"
+          >
+            Approve
+          </button>
+          <button
+            onClick={() => onDecide(false)}
+            className="flex-1 py-2.5 rounded-xl bg-red-500/20 border border-red-500/40 text-red-400 text-sm font-semibold hover:bg-red-500/30 transition-all"
+          >
+            Reject
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── ToolTraceCard ──────────────────────────────────────────────────────────────
 
 function ToolTraceCard({ trace }: { trace: ToolTrace }) {
   const [open, setOpen] = useState(false);
   const server = parseServer(trace.tool);
-  const color = serverColor(server);
+  const color  = serverColor(server);
 
   return (
     <div
@@ -235,7 +323,7 @@ function StatusBar({ connected }: { connected: boolean }) {
 // ── Suggestions ───────────────────────────────────────────────────────────────
 
 const SUGGESTIONS = [
-  { label: "List Documents folder",        prompt: "List what's in my Documents folder" },
+  { label: "List Documents folder",         prompt: "List what's in my Documents folder" },
   { label: "Ingest PDFs to knowledge base", prompt: "Ingest all PDFs in ~/Documents/localcowork" },
   { label: "Search knowledge base",         prompt: "Search my knowledge base for 'attention mechanism'" },
   { label: "Show audit trail",              prompt: "Show me the audit trail" },
@@ -248,13 +336,14 @@ const SUGGESTIONS = [
 // ── App ───────────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [connected, setConnected] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
+  const [messages, setMessages]           = useState<Message[]>([]);
+  const [input, setInput]                 = useState("");
+  const [connected, setConnected]         = useState(false);
+  const [busy, setBusy]                   = useState(false);
+  const [pendingConfirm, setPendingConfirm] = useState<ToolConfirmEvent | null>(null);
+  const wsRef    = useRef<WebSocket | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputRef  = useRef<HTMLTextAreaElement>(null);
 
   // ── WebSocket ────────────────────────────────────────────────────────────
 
@@ -262,7 +351,7 @@ export default function App() {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen  = () => setConnected(true);
     ws.onclose = () => {
       setConnected(false);
       setTimeout(connect, 3000);
@@ -270,6 +359,13 @@ export default function App() {
 
     ws.onmessage = (e) => {
       const event: AgentEvent = JSON.parse(e.data);
+
+      // HITL confirmation — pause agent, show dialog
+      if (event.type === "tool_confirm") {
+        setPendingConfirm(event as ToolConfirmEvent);
+        setBusy(false);
+        return;
+      }
 
       setMessages(prev => {
         const last = prev[prev.length - 1];
@@ -281,16 +377,23 @@ export default function App() {
           updated.traces = [
             ...updated.traces,
             {
-              tool: event.tool,
-              server: parseServer(event.tool),
+              tool:      event.tool,
+              server:    parseServer(event.tool),
               arguments: event.arguments,
-              pending: true,
+              pending:   true,
             },
           ];
         } else if (event.type === "tool_result") {
           updated.traces = updated.traces.map(t =>
             t.tool === event.tool && t.pending
-              ? { ...t, pending: false, success: event.success, result: event.result, error: event.error, latency_ms: event.latency_ms }
+              ? {
+                  ...t,
+                  pending:    false,
+                  success:    event.success,
+                  result:     event.result,
+                  error:      event.error,
+                  latency_ms: event.latency_ms,
+                }
               : t
           );
         } else if (event.type === "text_delta") {
@@ -299,7 +402,7 @@ export default function App() {
           updated.streaming = false;
           setBusy(false);
         } else if (event.type === "error") {
-          updated.content = `⚠️ ${event.message}`;
+          updated.content   = `⚠️ ${event.message}`;
           updated.streaming = false;
           setBusy(false);
         }
@@ -321,6 +424,19 @@ export default function App() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // ── HITL decision ─────────────────────────────────────────────────────────
+
+  const handleConfirm = (approved: boolean) => {
+    if (!pendingConfirm) return;
+    wsRef.current?.send(JSON.stringify({
+      type:         "confirm",
+      tool_call_id: pendingConfirm.tool_call_id,
+      approved,
+    }));
+    setPendingConfirm(null);
+    setBusy(true);
+  };
+
   // ── Send ─────────────────────────────────────────────────────────────────
 
   const send = (text: string) => {
@@ -329,8 +445,8 @@ export default function App() {
 
     setMessages(prev => [
       ...prev,
-      { id: crypto.randomUUID(), role: "user", content: msg, traces: [], streaming: false },
-      { id: crypto.randomUUID(), role: "assistant", content: "", traces: [], streaming: true },
+      { id: crypto.randomUUID(), role: "user",      content: msg, traces: [], streaming: false },
+      { id: crypto.randomUUID(), role: "assistant",  content: "",  traces: [], streaming: true  },
     ]);
     setBusy(true);
     wsRef.current?.send(JSON.stringify({ message: msg }));
@@ -348,6 +464,11 @@ export default function App() {
 
   return (
     <div className="h-screen bg-[#010409] text-white flex flex-col font-['IBM_Plex_Mono',monospace]">
+
+      {/* HITL confirmation dialog — rendered above everything */}
+      {pendingConfirm && (
+        <ConfirmationDialog event={pendingConfirm} onDecide={handleConfirm} />
+      )}
 
       {/* Header */}
       <div className="flex items-center gap-3 px-6 py-3 border-b border-white/5 bg-[#0d1117]">
