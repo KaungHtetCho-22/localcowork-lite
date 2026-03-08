@@ -27,11 +27,11 @@ You:   "Check my inbox and summarize any unread messages from recruiters"
 Agent: google.list_emails → 10 emails fetched (1240ms)
        google.search_emails → query: 'from:recruiter OR subject:opportunity' → 3 matches (890ms)
        google.summarize_thread → thread 19ccb9c2 read (670ms)
-       "You have 3 recruiter emails. The most recent is from winwinphyo.08@gmail.com
+       "You have 3 recruiter emails. The most recent is from abc@gmail.com
         asking you to visit the office to sign your offer letter."
 
 You:   "Reply to the offer letter email and confirm I'll visit Thursday"
-Agent: google.send_email → to: winwinphyo.08@gmail.com, subject: Re: Offer Letter (540ms)
+Agent: google.send_email → to: abc8@gmail.com, subject: Re: Offer Letter (540ms)
        "Email sent. Confirmed your Thursday visit."
 
 You:   "What's on my calendar this week? Find a free 2-hour slot for deep work"
@@ -41,7 +41,7 @@ Agent: google.list_events → 7 events found for next 7 days (820ms)
         10:00–12:00 and 15:00–17:00."
 
 You:   "Block 10am–12pm Tuesday as Deep Work"
-Agent: google.create_time_block → '🔒 Deep Work' created on 2026-03-10T10:00 (490ms)
+Agent: google.create_time_block → 'Deep Work' created on 2026-03-10T10:00 (490ms)
        "Done. Deep Work block added to your calendar for Tuesday 10:00–12:00
         with a 1-day reminder."
 
@@ -182,39 +182,22 @@ brew install llama.cpp
 ### Step 1 — Clone and run setup
 
 ```bash
-git clone <your-repo-url> && cd localcowork-lite
+git clone https://github.com/KaungHtetCho-22/localcowork-lite.git && cd localcowork-lite
 chmod +x scripts/*.sh
 ./scripts/setup-dev.sh
 ```
 
 This creates a `.venv` with all Python dependencies via `uv`, copies `.env.example` to `.env`, and installs frontend Node packages.
 
-### Step 2 — Download the model (~4.4 GB)
+### Step 2 — Start the model server (Terminal 1)
 
 ```bash
-uv pip install huggingface-hub --python .venv/bin/python
-
-# Recommended: let llama-server auto-download on first start (Step 3)
-# Or manually download split files:
-huggingface-cli download Qwen/Qwen2.5-7B-Instruct-GGUF \
-  --include "qwen2.5-7b-instruct-q4_k_m*.gguf" \
-  --local-dir ~/models/
-```
-
-### Step 3 — Start the model server (Terminal 1)
-
-```bash
-# Auto-download + serve (easiest):
-llama-server -hf Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M \
-  --port 8080 --ctx-size 32768 --n-gpu-layers 35 --flash-attn
-
-# Or use the provided script:
 ./scripts/start-model.sh
 ```
 
 Wait until you see `llama server listening` before continuing.
 
-### Step 4 — Configure environment
+### Step 3 — Configure environment
 
 Edit `.env` to match your setup:
 
@@ -227,7 +210,7 @@ FILESYSTEM_SANDBOX_DIR=/home/yourname/Documents
 LLM_MAX_TOKENS=1024
 ```
 
-### Step 5 — Start the backend (Terminal 2)
+### Step 4 — Start the backend (Terminal 2)
 
 ```bash
 uv run uvicorn backend.main:app --reload --port 8000
@@ -239,13 +222,13 @@ curl http://localhost:8000/health
 # → {"status":"ok","llm_connected":true,...}
 ```
 
-### Step 6 — Start the frontend (Terminal 3)
+### Step 5 — Start the frontend (Terminal 3)
 
 ```bash
 cd frontend && npm run dev
 ```
 
-### Step 7 — Open the app
+### Step 6 — Open the app
 
 Navigate to **http://localhost:5173** in your browser.
 
@@ -393,20 +376,6 @@ localcowork-lite/
 
 ---
 
-## Comparison with Original LocalCowork
-
-| | LocalCowork (LiquidAI) | LocalCowork Lite |
-|---|---|---|
-| **Hardware** | Apple M4 Max 36GB | RTX 3060 6GB VRAM |
-| **Model** | LFM2-24B-A2B ~14.5GB | Qwen2.5-7B Q4_K_M ~4.5GB |
-| **Backend** | Rust (Tauri 2.0) | Python (FastAPI) |
-| **Frontend** | React/TypeScript | React/TypeScript |
-| **Tool count** | 75 tools / 14 servers | 21 tools / 6 servers |
-| **Google Workspace** | ❌ | ✅ Gmail + Calendar |
-| **Setup complexity** | High (Rust + Node + Python) | Low (Python + Node + uv) |
-| **Primary focus** | General productivity | Knowledge base + Google Workspace |
-
----
 
 ## Known Limitations
 
