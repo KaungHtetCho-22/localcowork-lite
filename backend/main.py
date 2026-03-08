@@ -15,17 +15,15 @@ from backend.agent_core.conversation import ConversationManager
 from backend.agent_core.tool_router import list_tools
 from backend.agent_core.audit import audit
 from backend.inference.client import inference
+from backend.agent_core.db import init_db, list_sessions
 
 
 # ── Session store (in-memory, one ConversationManager per session) ────────────
 _sessions: dict[str, ConversationManager] = {}
 
-
 def _get_session(session_id: str) -> ConversationManager:
     if session_id not in _sessions:
-        cm = ConversationManager()
-        cm.session_id = session_id
-        _sessions[session_id] = cm
+        _sessions[session_id] = ConversationManager(session_id)
     return _sessions[session_id]
 
 
@@ -35,6 +33,8 @@ async def lifespan(app: FastAPI):
     print(f"  LLM endpoint : {settings.llm_base_url}")
     print(f"  ChromaDB     : {settings.chroma_persist_dir}")
     print(f"  Sandbox      : {settings.sandbox_path}")
+    init_db()
+    print("✓ LocalCowork Lite backend starting")
     yield
     print("LocalCowork Lite backend stopped")
 
@@ -78,6 +78,9 @@ async def get_audit(session_id: str | None = None, limit: int = 50):
 class ResetRequest(BaseModel):
     session_id: str
 
+@app.get("/sessions")
+async def get_sessions():
+    return {"sessions": list_sessions()}
 
 @app.post("/session/reset")
 async def reset_session(req: ResetRequest):

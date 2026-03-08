@@ -19,6 +19,7 @@ from typing import AsyncIterator
 from backend.inference.client import inference
 from backend.agent_core.tool_router import get_tool_schemas, dispatch
 from backend.config import settings
+from backend.agent_core.db import save_message, load_messages, delete_session
 
 SYSTEM_PROMPT = """You are LocalCowork, a private on-device AI assistant.
 You have access to tools for managing files, documents, knowledge base, system info, and Google Workspace.
@@ -34,12 +35,17 @@ Rules:
 """
 
 class ConversationManager:
-    def __init__(self):
-        self.session_id: str = str(uuid.uuid4())
-        self._history: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    def __init__(self, session_id: str):
+        self.session_id = session_id
+        # Load existing history from DB, or start fresh
+        stored = load_messages(session_id)
+        if stored:
+            self._history = stored
+        else:
+            self._history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     def reset(self):
-        self.session_id = str(uuid.uuid4())
+        delete_session(self.session_id)
         self._history = [{"role": "system", "content": SYSTEM_PROMPT}]
 
     async def turn(self, user_message: str) -> AsyncIterator[dict]:
@@ -51,6 +57,7 @@ class ConversationManager:
           {"type": "done"}
         """
         self._history.append({"role": "user", "content": user_message})
+        save_message(self.session_id, "user", {"role": "user", "content": user_message})
         tools = get_tool_schemas()
 
         for _ in range(settings.max_tool_calls):
@@ -69,6 +76,7 @@ class ConversationManager:
                 "content": response["content"],
                 "tool_calls": response["tool_calls"],
             })
+            save_message(self.session_id, "assistant", self._history[-1])
 
             # Dispatch each tool call
             for tc in response["tool_calls"]:
@@ -101,10 +109,12 @@ class ConversationManager:
                     "tool_call_id": tc["id"],
                     "content": json.dumps(result.get("result") or result.get("error")),
                 })
+                save_message(self.session_id, "tool", self._history[-1])
 
         # Exceeded max tool calls — ask LLM to synthesize with what it has
         final = await inference.chat(self._history, tools=None)
         self._history.append({"role": "assistant", "content": final["content"]})
+        save_message(self.session_id, "assistant", self._history[-1])
         yield {"type": "text_delta", "content": final["content"]}
         yield {"type": "done"}
 
