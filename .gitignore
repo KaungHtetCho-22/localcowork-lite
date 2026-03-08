@@ -1,0 +1,60 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# ── uv ────────────────────────────────────────────────────────────────────────
+.python-version
+uv.lock
+
+# ── Environment ───────────────────────────────────────────────────────────────
+.env
+*.env.local
+
+# ── Data directories ──────────────────────────────────────────────────────────
+.data/
+
+# ── Models ────────────────────────────────────────────────────────────────────
+_models/*.gguf
+_models/*.bin
+*.gguf
+*.bin
+~/models/
+
+# ── Google OAuth tokens (keep credentials.json out of git too) ────────────────
+backend/mcp_servers/google/token.json
+backend/mcp_servers/google/credentials.json
+
+# ── Node / Frontend ───────────────────────────────────────────────────────────
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ── pytest / coverage ────────────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
