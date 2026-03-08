@@ -307,6 +307,7 @@ register_tool(
         },
     },
     handler=list_emails,
+    risk="safe"
 )
 
 register_tool(
@@ -322,6 +323,7 @@ register_tool(
         "required": ["query"],
     },
     handler=search_emails,
+    risk="safe"
 )
 
 register_tool(
@@ -336,6 +338,7 @@ register_tool(
         "required": ["thread_id"],
     },
     handler=summarize_thread,
+    risk="safe"
 )
 
 register_tool(
@@ -353,6 +356,7 @@ register_tool(
         "required": ["to", "subject", "body"],
     },
     handler=send_email,
+    risk="destructive"
 )
 
 register_tool(
@@ -367,6 +371,7 @@ register_tool(
         },
     },
     handler=list_events,
+    risk="safe"
 )
 
 register_tool(
@@ -385,6 +390,7 @@ register_tool(
         "required": ["title", "start", "end"],
     },
     handler=create_event,
+    risk="write"
 )
 
 register_tool(
@@ -400,6 +406,7 @@ register_tool(
         "required": ["date"],
     },
     handler=find_free_slots,
+    risk="safe"
 )
 
 register_tool(
@@ -417,4 +424,5 @@ register_tool(
         "required": ["title", "date", "start_time"],
     },
     handler=create_time_block,
+    risk="write"
 )
