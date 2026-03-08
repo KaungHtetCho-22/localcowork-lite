@@ -12,7 +12,8 @@ Inspired by [LiquidAI's LocalCowork](https://github.com/Liquid4All/cookbook/tree
 ![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
 ![VRAM](https://img.shields.io/badge/VRAM-6GB%20RTX%203060-76B900?logo=nvidia&logoColor=white)
 ![Model](https://img.shields.io/badge/model-Qwen2.5--7B%20Q4__K__M-blueviolet)
-
+![uv](https://img.shields.io/badge/uv-package%20manager-DE5FE9)
+![pytest](https://img.shields.io/badge/pytest-53%20tests-blue?logo=pytest&logoColor=white)
 ---
 
 ## What Is This?
