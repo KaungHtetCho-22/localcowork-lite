@@ -4,8 +4,14 @@
 
 Inspired by [LiquidAI's LocalCowork](https://github.com/Liquid4All/cookbook/tree/main/examples/localcowork), rebuilt in Python for accessibility and scaled to fit consumer hardware. No cloud APIs, no data leaving your machine, no vendor lock-in.
 
+
 ![Python](https://img.shields.io/badge/python-3.11-blue)
-![Tests](https://img.shields.io/badge/tests-53%20passed-brightgreen)
+![Tests](https://img.shields.io/badge/pytest-53%20passed-brightgreen?logo=pytest)
+![Local](https://img.shields.io/badge/100%25%20local-no%20cloud-brightgreen)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)
+![VRAM](https://img.shields.io/badge/VRAM-6GB%20RTX%203060-76B900?logo=nvidia&logoColor=white)
+![Model](https://img.shields.io/badge/model-Qwen2.5--7B%20Q4__K__M-blueviolet)
 
 ---
 
