@@ -4,9 +4,8 @@
 
 Inspired by [LiquidAI's LocalCowork](https://github.com/Liquid4All/cookbook/tree/main/examples/localcowork), rebuilt in Python for accessibility and scaled to fit consumer hardware. No cloud APIs, no data leaving your machine, no vendor lock-in.
 
-[![tests](https://github.com/KaungHtetCho-22/localcowork-lite/actions/workflows/pytest.yml/badge.svg)](https://github.com/KaungHtetCho-22/localcowork-lite/actions/workflows/pytest.yml)
-
 ![Python](https://img.shields.io/badge/python-3.11-blue)
+![Tests](https://img.shields.io/badge/tests-53%20passed-brightgreen)
 
 ---
 
@@ -35,7 +34,7 @@ Agent: google.list_emails → 10 emails fetched (1240ms)
         asking you to visit the office to sign your offer letter."
 
 You:   "Reply to the offer letter email and confirm I'll visit Thursday"
-Agent: google.send_email → to: abc8@gmail.com, subject: Re: Offer Letter (540ms)
+Agent: google.send_email → to: abc@gmail.com, subject: Re: Offer Letter (540ms)
        "Email sent. Confirmed your Thursday visit."
 
 You:   "What's on my calendar this week? Find a free 2-hour slot for deep work"
@@ -62,7 +61,7 @@ Everything — the model, the tools, your files — stays on your machine.
 - **Privacy**: your documents, emails, and calendar never touch a third-party API
 - **Cost**: no per-token billing — run it all day for free after setup
 - **Learning**: a practical, end-to-end example of local LLM + tool-calling architecture
-- **Portfolio**: demonstrates production ML engineering — RAG pipelines, agent loops, MCP servers, audit logging
+- **Portfolio**: demonstrates production ML engineering — RAG pipelines, agent loops, MCP servers, SQLite persistence, human-in-the-loop confirmation
 
 ---
 
@@ -72,17 +71,20 @@ Everything — the model, the tools, your files — stays on your machine.
 ┌─────────────────────────────────────────────┐
 │           React + TypeScript (Vite)          │
 │    Chat UI · Tool Trace Panel · Charts        │
+│    HITL Confirmation Dialog                   │
 └───────────────────┬─────────────────────────┘
                     │ WebSocket (ws://localhost:8000)
 ┌───────────────────▼─────────────────────────┐
 │           FastAPI Backend (Python)            │
 │                                               │
 │  ConversationManager                          │
-│    └─ manages message history + agent loop    │
+│    └─ agent loop · HITL pause/resume          │
+│    └─ SQLite-backed history (persistent)      │
 │                                               │
 │  ToolRouter                                   │
 │    └─ auto-discovers MCP servers at startup   │
 │    └─ dispatches tool calls + audit logging   │
+│    └─ risk classification per tool            │
 │                                               │
 │  InferenceClient                              │
 │    └─ OpenAI-compat API → llama.cpp server    │
@@ -107,15 +109,51 @@ MCP Servers (Python modules, auto-discovered):
 
 Each conversation turn works like this:
 
-1. User message is appended to history
+1. User message is appended to history and saved to SQLite
 2. LLM is called with the full history + all tool schemas
-3. If the LLM emits a `tool_call` → dispatch it → append result → call LLM again
+3. If the LLM emits a `tool_call`:
+   - If the tool is `write` or `destructive` risk → pause and ask user to confirm (HITL)
+   - If approved (or `safe` risk) → dispatch → append result → call LLM again
 4. Repeat up to `MAX_TOOL_CALLS` times (default: 10)
 5. Stream final text response back to the frontend via WebSocket
 
 ### MCP Tool Registration
 
 Each server module calls `register_tool()` at import time. The `ToolRouter` auto-discovers all servers by importing them, builds OpenAI-compatible tool schemas, and routes calls by name (`server.tool_name`). Adding a new tool requires no changes to the core agent — just register it in the server module and restart.
+
+---
+
+## Key Features
+
+### Persistent Conversation Memory
+
+Conversation history is saved to a local SQLite database (`.data/sessions.db`) after every message. If the backend restarts, all sessions are restored automatically — the agent remembers everything it was told and every tool it called.
+
+```
+# Monday session
+You:   "Ingest all PDFs in ~/research"
+Agent: 6 PDFs indexed into ChromaDB
+
+# Backend restarted Tuesday morning
+
+You:   "What did we ingest yesterday?"
+Agent: "Yesterday we ingested 6 PDFs from your research folder:
+        paper1.pdf, paper2.pdf..."   ← restored from SQLite
+```
+
+The `/sessions` REST endpoint lists all past sessions with message counts and timestamps, enabling a future conversation history sidebar.
+
+### Human-in-the-Loop (HITL) Confirmation
+
+Every tool is classified with a risk level. Before executing write or destructive actions, the agent pauses and shows a confirmation dialog in the frontend — the user must explicitly approve or reject before execution continues.
+
+| Risk | Color | Examples | Behavior |
+|---|---|---|---|
+| `safe` | — | `search`, `list_dir`, `list_emails` | Executes immediately |
+| `write` | 🟡 Yellow | `ingest_document`, `create_event`, `create_report` | Pauses — requires approval |
+| `destructive` | 🔴 Red | `send_email`, `delete_source` | Pauses — requires approval |
+
+If the user rejects a tool call, the agent records `"Rejected by user"` in the conversation history and synthesizes a response explaining what was cancelled — without crashing or losing context.
 
 ---
 
@@ -209,7 +247,6 @@ Edit `.env` to match your setup:
 # Sandbox — agent can only access files under this path
 FILESYSTEM_SANDBOX_DIR=/home/yourname/Documents
 
-# Match ctx-size with what you passed to llama-server
 # Default max tokens per response
 LLM_MAX_TOKENS=1024
 ```
@@ -258,14 +295,14 @@ To enable the `google` MCP server you need OAuth2 credentials from Google Cloud.
    - Add your Gmail under **Test users**
 7. Under **Authorized redirect URIs** add: `http://localhost:8085/`
 
-### First Run
+### First Run Authentication
 
-On the first Google tool call, a browser window opens asking you to sign in and grant permissions. After approval, `token.json` is saved and reused automatically.
+On the first Google tool call, a browser window opens asking you to sign in. The OAuth flow must include `access_type="offline"` and `prompt="consent"` to receive a `refresh_token` — this is already set in `google/server.py`.
 
 ```bash
-# If Google tools stop working, re-authenticate:
+# If Google tools stop working (expired token), re-authenticate:
 rm -f backend/mcp_servers/google/token.json
-# Then restart the backend and trigger any Google tool call
+# Restart the backend and trigger any Google tool call
 ```
 
 ---
@@ -310,6 +347,34 @@ TOOL_TIMEOUT=30
 
 ---
 
+## Running Tests
+
+```bash
+# Install dev dependencies
+uv pip install -e ".[dev]" --python .venv/bin/python
+
+# Run all tests
+uv run pytest tests/ -v
+
+# Run a specific module
+uv run pytest tests/test_db.py -v
+uv run pytest tests/test_tool_router.py -v
+uv run pytest tests/test_conversation.py -v
+
+# Run with coverage
+uv run pytest tests/ --cov=backend --cov-report=term-missing
+```
+
+53 tests across 3 modules — all run fully offline with no model server required (LLM, dispatch, and DB are mocked).
+
+| Module | Tests | Covers |
+|---|---|---|
+| `test_db.py` | 18 | SQLite persistence — save, load, delete, list, ordering, isolation |
+| `test_tool_router.py` | 12 | Tool registry, schema generation, risk classification, dispatch |
+| `test_conversation.py` | 23 | Agent loop, HITL approve/reject/bypass, DB persistence calls |
+
+---
+
 ## Adding a New Tool
 
 1. Open the relevant `backend/mcp_servers/<server>/server.py`
@@ -318,7 +383,6 @@ TOOL_TIMEOUT=30
 
 ```python
 async def my_tool(param: str) -> dict:
-    """Does something useful."""
     return {"result": param.upper()}
 
 register_tool(
@@ -333,6 +397,7 @@ register_tool(
         "required": ["param"],
     },
     handler=my_tool,
+    risk="safe",  # "safe" | "write" | "destructive"
 )
 ```
 
@@ -342,7 +407,7 @@ register_tool(
 **Tips for good tool descriptions:**
 - Be specific about *when* to call this tool vs similar tools
 - Describe parameters clearly — the LLM fills these from your message
-- Keep names in `server.tool_name` format
+- Always set `risk` — it controls whether HITL confirmation is triggered
 
 ---
 
@@ -354,11 +419,12 @@ localcowork-lite/
 │   ├── main.py                     FastAPI app, WebSocket chat, REST endpoints
 │   ├── config.py                   Pydantic settings loaded from .env
 │   ├── agent_core/
-│   │   ├── conversation.py         Agent loop — LLM ↔ tool dispatch ↔ history
-│   │   ├── tool_router.py          Tool registry, auto-discovery, dispatch + audit
+│   │   ├── conversation.py         Agent loop — LLM ↔ tool dispatch ↔ HITL ↔ history
+│   │   ├── tool_router.py          Tool registry, risk classification, dispatch + audit
+│   │   ├── db.py                   SQLite session persistence (save/load/delete/list)
 │   │   └── audit.py                Async JSONL audit logger
 │   ├── inference/
-│   │   └── client.py               OpenAI-compat client (works with llama.cpp / Ollama / vLLM)
+│   │   └── client.py               OpenAI-compat client (llama.cpp / Ollama / vLLM)
 │   └── mcp_servers/
 │       ├── knowledge/server.py     ChromaDB RAG — ingest, search, manage sources
 │       ├── filesystem/server.py    Sandboxed file ops
@@ -368,9 +434,14 @@ localcowork-lite/
 │       └── google/server.py        Gmail + Google Calendar via Google API OAuth2
 ├── frontend/
 │   └── src/
-│       ├── App.tsx                 Chat UI — messages, tool trace panel, suggestions
+│       ├── App.tsx                 Chat UI — messages, tool traces, HITL dialog
 │       └── components/
 │           └── SystemInfoChart.tsx CPU/RAM radial gauges + memory pie (Recharts)
+├── tests/
+│   ├── conftest.py                 Shared pytest config (asyncio_mode=auto)
+│   ├── test_db.py                  18 tests — SQLite persistence layer
+│   ├── test_tool_router.py         12 tests — tool registry and dispatch
+│   └── test_conversation.py        23 tests — agent loop and HITL
 ├── scripts/
 │   ├── setup-dev.sh                One-command setup using uv + npm
 │   └── start-model.sh              Start llama-server optimised for RTX 3060
@@ -380,13 +451,28 @@ localcowork-lite/
 
 ---
 
+<!-- ## Comparison with Original LocalCowork
+
+| | LocalCowork (LiquidAI) | LocalCowork Lite |
+|---|---|---|
+| **Hardware** | Apple M4 Max 36GB | RTX 3060 6GB VRAM |
+| **Model** | LFM2-24B-A2B ~14.5GB | Qwen2.5-7B Q4_K_M ~4.5GB |
+| **Backend** | Rust (Tauri 2.0) | Python (FastAPI) |
+| **Frontend** | React/TypeScript | React/TypeScript |
+| **Tool count** | 75 tools / 14 servers | 21 tools / 6 servers |
+| **Google Workspace** | ❌ | ✅ Gmail + Calendar |
+| **Conversation persistence** | ❌ | ✅ SQLite-backed sessions |
+| **Human-in-the-loop** | ❌ | ✅ Risk-classified confirmation dialog |
+| **Test suite** | — | ✅ 53 tests, fully offline |
+| **Setup complexity** | High (Rust + Node + Python) | Low (Python + Node + uv) |
+
+--- -->
 
 ## Known Limitations
 
 - **Multi-step chains**: reliable for 1–3 tool calls; longer chains may lose track — use specific prompts
 - **Context window**: very long email threads or large documents may hit the 32K limit; chunking helps
-- **Tool selection**: with 21 tools, occasional mis-selection happens — clear, specific prompts improve accuracy
+- **Tool selection accuracy**: with 21 tools, occasional mis-selection happens — clear, specific prompts improve accuracy significantly
 - **Google OAuth**: token expires periodically — delete `token.json` and re-authenticate if needed
 - **Filesystem sandbox**: the agent cannot access files outside `FILESYSTEM_SANDBOX_DIR` by design
 
----
