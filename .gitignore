@@ -1,61 +1,45 @@
-# ── Python ────────────────────────────────────────────────────────────────────
+# Python
 .venv/
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
-*.pyd
 *.egg-info/
 dist/
 build/
-*.egg
-.eggs/
+*.spec
+.pytest_cache/
 
-# ── uv ────────────────────────────────────────────────────────────────────────
-.python-version
-uv.lock
-
-# ── Environment ───────────────────────────────────────────────────────────────
-.env
-*.env.local
-
-# ── Data directories ──────────────────────────────────────────────────────────
+# Data (user-specific, not for repo)
 .data/
+*.db
+*.jsonl
 
-# ── Models ────────────────────────────────────────────────────────────────────
-_models/*.gguf
-_models/*.bin
-*.gguf
-*.bin
-~/models/
+# Environment
+.env
+!.env.example
 
-# ── Google OAuth tokens (keep credentials.json out of git too) ────────────────
+# Google OAuth tokens (never commit these)
 backend/mcp_servers/google/token.json
 backend/mcp_servers/google/credentials.json
 
-# ── Node / Frontend ───────────────────────────────────────────────────────────
-node_modules/
+# Tauri build output
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
+
+# Tauri binaries (large, built locally)
+frontend/src-tauri/binaries/llama-server-*
+frontend/src-tauri/binaries/uvicorn-backend-*
+frontend/src-tauri/binaries/uvicorn-backend-dir/
+
+# Node
 frontend/node_modules/
 frontend/dist/
-frontend/.vite/
-frontend/package-lock.json
 
-# ── OS ────────────────────────────────────────────────────────────────────────
+# OS
 .DS_Store
 Thumbs.db
-desktop.ini
 
-# ── IDE ───────────────────────────────────────────────────────────────────────
+# Editor
 .vscode/
 .idea/
 *.swp
-*.swo
-*~
-
-# ── Logs ──────────────────────────────────────────────────────────────────────
-*.log
-logs/
-
-# ── pytest / coverage ────────────────────────────────────────────────────────
-.pytest_cache/
-.coverage
-htmlcov/
