@@ -3,7 +3,7 @@ name: release
 on:
   push:
     tags:
-      - 'v*'   # triggers on v0.2.0, v1.0.0 etc
+      - 'v*'
 
 jobs:
   build-deb:
@@ -27,7 +27,7 @@ jobs:
           uv pip install -e ".[dev]" --python .venv/bin/python
           uv pip install pyinstaller --python .venv/bin/python
 
-      - name: Run tests before building
+      - name: Run tests
         run: uv run pytest tests/ -v --tb=short
 
       - name: Build uvicorn-backend binary
@@ -68,12 +68,36 @@ jobs:
             --clean --noconfirm \
             backend/launcher.py
 
-      - name: Copy binary to Tauri sidecar
+      - name: Copy uvicorn-backend to sidecar
         run: |
           mkdir -p frontend/src-tauri/binaries
           cp dist/uvicorn-backend \
              frontend/src-tauri/binaries/uvicorn-backend-x86_64-unknown-linux-gnu
           chmod +x frontend/src-tauri/binaries/uvicorn-backend-x86_64-unknown-linux-gnu
+
+      # ── Download llama-server prebuilt binary ────────────────────────────
+      - name: Download llama-server
+        run: |
+          # Get latest llama.cpp release tag
+          LATEST=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          echo "llama.cpp release: $LATEST"
+
+          # Download the Ubuntu CUDA build
+          # Use the non-CUDA build since GitHub runners don't have GPUs
+          curl -L \
+            "https://github.com/ggerganov/llama.cpp/releases/download/${LATEST}/llama-${LATEST}-bin-ubuntu-x64.zip" \
+            -o llama-bin.zip
+
+          unzip llama-bin.zip -d llama-bin
+          find llama-bin -name "llama-server" | head -1
+
+          # Copy to sidecar
+          LLAMA_SERVER=$(find llama-bin -name "llama-server" | head -1)
+          cp "$LLAMA_SERVER" \
+             frontend/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
+          chmod +x frontend/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
+          echo "✓ llama-server copied"
 
       # ── Tauri .deb build ─────────────────────────────────────────────────
       - name: Install Node.js
@@ -87,6 +111,15 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            frontend/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('frontend/src-tauri/Cargo.lock') }}
+
       - name: Install Tauri system dependencies
         run: |
           sudo apt-get update
@@ -94,9 +127,6 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev \
             librsvg2-dev patchelf libssl-dev libgtk-3-dev \
             libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
-
-      - name: Install Tauri CLI
-        run: cargo install tauri-cli --version "^2.0" --locked
 
       - name: Set bundle target to deb only
         run: |
@@ -114,29 +144,29 @@ jobs:
           PYEOF
 
       - name: Build Tauri .deb
-        run: |
-          cd frontend
-          cargo tauri build
+        run: cd frontend && cargo tauri build
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
 
       # ── Upload to GitHub Release ─────────────────────────────────────────
-      - name: Find .deb file
+      - name: Find .deb
         id: find_deb
         run: |
           DEB=$(find frontend/src-tauri/target/release/bundle/deb -name "*.deb" | head -1)
           echo "deb_path=$DEB" >> $GITHUB_OUTPUT
-          echo "deb_name=$(basename $DEB)" >> $GITHUB_OUTPUT
+          echo "deb_name=$(basename "$DEB")" >> $GITHUB_OUTPUT
 
-      - name: Upload .deb to GitHub Release
+      - name: Upload to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find_deb.outputs.deb_path }}
           body: |
             ## LocalCowork Lite ${{ github.ref_name }}
 
-            ### Install (Ubuntu/Debian, NVIDIA GPU required)
+            A fully on-device AI agent with MCP tool-calling — RTX 3060 6GB VRAM.
+
+            ### Install (Ubuntu/Debian — NVIDIA GPU required)
             ```bash
             sudo dpkg -i "${{ steps.find_deb.outputs.deb_name }}"
             localcowork-lite
