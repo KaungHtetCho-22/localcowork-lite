@@ -1,0 +1,150 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'   # triggers on v0.2.0, v1.0.0 etc
+
+jobs:
+  build-deb:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Python + backend binary ──────────────────────────────────────────
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh
+
+      - name: Install Python dependencies
+        run: |
+          uv venv .venv --python 3.11
+          uv pip install -e ".[dev]" --python .venv/bin/python
+          uv pip install pyinstaller --python .venv/bin/python
+
+      - name: Run tests before building
+        run: uv run pytest tests/ -v --tb=short
+
+      - name: Build uvicorn-backend binary
+        run: |
+          SITE_PACKAGES=$(.venv/bin/python -c "import site; print(site.getsitepackages()[0])")
+          .venv/bin/pyinstaller --onefile \
+            --name uvicorn-backend \
+            --runtime-tmpdir /tmp/localcowork-lite \
+            --paths "$SITE_PACKAGES" \
+            --add-data "backend:backend" \
+            --hidden-import fastapi \
+            --hidden-import fastapi.middleware.cors \
+            --hidden-import uvicorn \
+            --hidden-import uvicorn.loops.auto \
+            --hidden-import uvicorn.protocols.http.auto \
+            --hidden-import uvicorn.protocols.websockets.auto \
+            --hidden-import uvicorn.lifespan.on \
+            --hidden-import starlette \
+            --hidden-import pydantic \
+            --hidden-import pydantic_settings \
+            --hidden-import aiofiles \
+            --hidden-import chromadb \
+            --hidden-import chromadb.db.impl.sqlite \
+            --hidden-import chromadb.segment.impl.vector.local_hnsw \
+            --hidden-import chromadb.segment.impl.metadata.sqlite \
+            --hidden-import sentence_transformers \
+            --hidden-import openai \
+            --hidden-import google_auth_oauthlib.flow \
+            --hidden-import googleapiclient.discovery \
+            --hidden-import charset_normalizer \
+            --hidden-import email.mime.text \
+            --hidden-import email.mime.multipart \
+            --collect-all chromadb \
+            --exclude-module torch \
+            --exclude-module torchvision \
+            --exclude-module torchaudio \
+            --exclude-module nvidia \
+            --clean --noconfirm \
+            backend/launcher.py
+
+      - name: Copy binary to Tauri sidecar
+        run: |
+          mkdir -p frontend/src-tauri/binaries
+          cp dist/uvicorn-backend \
+             frontend/src-tauri/binaries/uvicorn-backend-x86_64-unknown-linux-gnu
+          chmod +x frontend/src-tauri/binaries/uvicorn-backend-x86_64-unknown-linux-gnu
+
+      # ── Tauri .deb build ─────────────────────────────────────────────────
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install frontend dependencies
+        run: cd frontend && npm ci
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev \
+            librsvg2-dev patchelf libssl-dev libgtk-3-dev \
+            libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
+      - name: Set bundle target to deb only
+        run: |
+          python3 - << 'PYEOF'
+          import json
+          with open("frontend/src-tauri/tauri.conf.json") as f:
+              conf = json.load(f)
+          conf['bundle']['targets'] = ['deb']
+          conf['bundle']['externalBin'] = [
+              'binaries/llama-server',
+              'binaries/uvicorn-backend',
+          ]
+          with open("frontend/src-tauri/tauri.conf.json", "w") as f:
+              json.dump(conf, f, indent=2)
+          PYEOF
+
+      - name: Build Tauri .deb
+        run: |
+          cd frontend
+          cargo tauri build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+
+      # ── Upload to GitHub Release ─────────────────────────────────────────
+      - name: Find .deb file
+        id: find_deb
+        run: |
+          DEB=$(find frontend/src-tauri/target/release/bundle/deb -name "*.deb" | head -1)
+          echo "deb_path=$DEB" >> $GITHUB_OUTPUT
+          echo "deb_name=$(basename $DEB)" >> $GITHUB_OUTPUT
+
+      - name: Upload .deb to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find_deb.outputs.deb_path }}
+          body: |
+            ## LocalCowork Lite ${{ github.ref_name }}
+
+            ### Install (Ubuntu/Debian, NVIDIA GPU required)
+            ```bash
+            sudo dpkg -i "${{ steps.find_deb.outputs.deb_name }}"
+            localcowork-lite
+            ```
+
+            ### Requirements
+            - Ubuntu 22.04+
+            - NVIDIA GPU with 6GB+ VRAM
+            - nvidia-driver installed
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

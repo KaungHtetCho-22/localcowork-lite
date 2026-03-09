@@ -13,6 +13,9 @@ Inspired by [LiquidAI's LocalCowork](https://github.com/Liquid4All/cookbook/tree
 ![VRAM](https://img.shields.io/badge/VRAM-6GB%20RTX%203060-76B900?logo=nvidia&logoColor=white)
 ![Model](https://img.shields.io/badge/model-Qwen2.5--7B%20Q4__K__M-blueviolet)
 ![uv](https://img.shields.io/badge/uv-package%20manager-DE5FE9)
+![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)
+![Tauri](https://img.shields.io/badge/Tauri-2.0-FFC131?logo=tauri&logoColor=black)
+
 ---
 
 ![LocalCowork Lite](image.png)
@@ -165,6 +168,185 @@ If the user rejects a tool call, the agent records `"Rejected by user"` in the c
 
 ---
 
+## Running with Docker (Recommended for Users)
+
+Docker is the easiest way to run LocalCowork Lite. It packages all three services into isolated containers — no Python environment setup, no Node.js, no manual dependency management.
+
+### Requirements
+
+- Docker Engine 24+ and Docker Compose V2
+- NVIDIA GPU with 6GB+ VRAM
+- [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed
+
+Verify your GPU is accessible to Docker before starting:
+
+```bash
+docker run --rm --gpus all nvidia/cuda:12.1.0-base-ubuntu22.04 nvidia-smi
+```
+
+You should see your GPU listed. If not, install nvidia-container-toolkit first.
+
+### Step 1 — Clone and configure
+
+```bash
+git clone https://github.com/KaungHtetCho-22/localcowork-lite.git
+cd localcowork-lite
+cp .env.example .env
+```
+
+Edit `.env` — the only value you must change:
+
+```bash
+# Set this to a folder on your machine the agent is allowed to access
+FILESYSTEM_SANDBOX_DIR=/home/yourname/Documents
+```
+
+### Step 2 — Build the images
+
+```bash
+docker compose -f docker-compose.gpu.yaml build
+```
+
+> **Note:** The model image compiles llama.cpp with CUDA from source. This takes 20–30 minutes on the first build. It is fully cached after that — subsequent builds are instant.
+
+### Step 3 — Start everything
+
+```bash
+docker compose -f docker-compose.gpu.yaml up -d
+```
+
+Docker starts services in the correct order automatically:
+
+1. **model** — llama-server starts, downloads Qwen2.5-7B (~4.4 GB on first run), loads onto GPU
+2. **backend** — FastAPI starts after the model healthcheck passes
+3. **frontend** — nginx starts after backend is ready
+
+Watch the model loading progress:
+
+```bash
+docker logs -f localcowork-lite-model-1
+```
+
+When you see `llama server listening at http://0.0.0.0:8080` the model is ready.
+
+### Step 4 — Open the app
+
+Navigate to **http://localhost** in your browser.
+
+### Useful commands
+
+```bash
+# Check all services are running
+docker compose -f docker-compose.gpu.yaml ps
+
+# View logs for a specific service
+docker logs -f localcowork-lite-backend-1
+
+# Restart only the backend (after code changes)
+docker compose -f docker-compose.gpu.yaml restart backend
+
+# Stop everything
+docker compose -f docker-compose.gpu.yaml down
+
+# Stop and delete all data (ChromaDB, sessions, audit log)
+docker compose -f docker-compose.gpu.yaml down -v
+```
+
+### No GPU? Use the CPU stack
+
+```bash
+docker compose -f docker-compose.yaml up -d
+```
+
+> **Warning:** CPU inference is significantly slower — expect 5–15 seconds per token. The app still works correctly.
+
+### What persists between restarts
+
+| Path | Contents |
+|---|---|
+| `.data/chroma/` | ChromaDB vector embeddings — your knowledge base |
+| `.data/sessions.db` | Conversation history |
+| `.data/audit/` | JSONL audit trail |
+| `huggingface_cache` volume | Downloaded model weights — 4.4 GB, downloaded once |
+
+---
+
+## Running as a Desktop App (Tauri)
+
+LocalCowork Lite includes a [Tauri 2.0](https://tauri.app) desktop app that wraps the React frontend in a native window. The app automatically manages the model server — you don't need a browser or to remember to start llama-server manually.
+
+> Install the `.deb` — the app auto-starts both `llama-server` and the Python backend. No terminals needed.
+
+### Requirements
+
+- Rust (install via [rustup.rs](https://rustup.rs))
+- Node.js 20+
+- Ubuntu system libraries:
+
+```bash
+sudo apt-get install -y \
+  libwebkit2gtk-4.1-dev libappindicator3-dev \
+  librsvg2-dev patchelf libssl-dev libgtk-3-dev
+```
+
+### One-time setup
+
+```bash
+# Install Tauri CLI
+cargo install tauri-cli --version "^2.0"
+
+# Install frontend dependencies
+cd frontend && npm install
+
+# Copy llama-server as a Tauri sidecar
+mkdir -p src-tauri/binaries
+cp /usr/local/bin/llama-server \
+   src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
+chmod +x src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
+```
+
+### Running the desktop app
+
+**Terminal 1 — Start the Python backend:**
+
+```bash
+cd localcowork-lite
+source .venv/bin/activate
+uv run uvicorn backend.main:app --port 8000
+```
+
+Wait for: `INFO: Application startup complete.`
+
+**Terminal 2 — Launch the desktop app:**
+
+```bash
+cd frontend
+cargo tauri dev
+```
+
+A native desktop window opens. The app shows a loading screen while llama-server starts and the model loads. Once ready, the full chat UI appears.
+
+> **First launch:** The model downloads ~4.4 GB from HuggingFace. This takes a few minutes depending on your connection. It is cached locally — subsequent launches load in 30–60 seconds.
+
+### Building a distributable installer
+
+```bash
+cd frontend
+cargo tauri build
+```
+
+This produces:
+
+```
+src-tauri/target/release/bundle/
+  deb/localcowork-lite_0.1.0_amd64.deb     ← install with: sudo dpkg -i
+  appimage/localcowork-lite_0.1.0.AppImage  ← portable, no install needed
+```
+
+Install the `.deb` and the app appears in your Ubuntu application menu.
+
+---
+
 ## MCP Servers & Tools
 
 | Server | Tools | Description |
@@ -196,7 +378,7 @@ Works on any GPU with 6GB+ VRAM. On 8GB+ you can increase `--ctx-size` further.
 
 ---
 
-## Prerequisites
+## Prerequisites (Manual Setup)
 
 Install these before running setup:
 
@@ -227,7 +409,7 @@ brew install llama.cpp
 
 ---
 
-## Quick Start
+## Quick Start (Manual)
 
 ### Step 1 — Clone and run setup
 
@@ -236,8 +418,6 @@ git clone https://github.com/KaungHtetCho-22/localcowork-lite.git && cd localcow
 chmod +x scripts/*.sh
 ./scripts/setup-dev.sh
 ```
-
-This creates a `.venv` with all Python dependencies via `uv`, copies `.env.example` to `.env`, and installs frontend Node packages.
 
 ### Step 2 — Start the model server (Terminal 1)
 
@@ -252,10 +432,7 @@ Wait until you see `llama server listening` before continuing.
 Edit `.env` to match your setup:
 
 ```bash
-# Sandbox — agent can only access files under this path
 FILESYSTEM_SANDBOX_DIR=/home/yourname/Documents
-
-# Default max tokens per response
 LLM_MAX_TOKENS=1024
 ```
 
@@ -263,12 +440,6 @@ LLM_MAX_TOKENS=1024
 
 ```bash
 uv run uvicorn backend.main:app --reload --port 8000
-```
-
-Verify it's healthy:
-```bash
-curl http://localhost:8000/health
-# → {"status":"ok","llm_connected":true,...}
 ```
 
 ### Step 5 — Start the frontend (Terminal 3)
@@ -305,7 +476,7 @@ To enable the `google` MCP server you need OAuth2 credentials from Google Cloud.
 
 ### First Run Authentication
 
-On the first Google tool call, a browser window opens asking you to sign in. The OAuth flow must include `access_type="offline"` and `prompt="consent"` to receive a `refresh_token` — this is already set in `google/server.py`.
+On the first Google tool call, a browser window opens asking you to sign in.
 
 ```bash
 # If Google tools stop working (expired token), re-authenticate:
@@ -334,13 +505,10 @@ CORS_ORIGINS=http://localhost:5173
 # Knowledge base
 CHROMA_PERSIST_DIR=./.data/chroma
 EMBED_MODEL=nomic-ai/nomic-embed-text-v1.5
-EMBED_DEVICE=cpu                          # use 'cuda' for GPU embeddings
+EMBED_DEVICE=cpu
 
 # Filesystem sandbox (agent cannot go outside this path)
 FILESYSTEM_SANDBOX_DIR=~/Documents
-
-# Document output directory
-DOCUMENT_OUTPUT_DIR=./.data/documents
 
 # Audit log
 AUDIT_LOG_PATH=./.data/audit/tool_calls.jsonl
@@ -348,9 +516,6 @@ AUDIT_LOG_PATH=./.data/audit/tool_calls.jsonl
 # Agent limits
 MAX_TOOL_CALLS=10
 TOOL_TIMEOUT=30
-
-# Google (optional)
-# credentials.json + token.json live in backend/mcp_servers/google/
 ```
 
 ---
@@ -358,22 +523,12 @@ TOOL_TIMEOUT=30
 ## Running Tests
 
 ```bash
-# Install dev dependencies
 uv pip install -e ".[dev]" --python .venv/bin/python
-
-# Run all tests
 uv run pytest tests/ -v
-
-# Run a specific module
-uv run pytest tests/test_db.py -v
-uv run pytest tests/test_tool_router.py -v
-uv run pytest tests/test_conversation.py -v
-
-# Run with coverage
 uv run pytest tests/ --cov=backend --cov-report=term-missing
 ```
 
-53 tests across 3 modules — all run fully offline with no model server required (LLM, dispatch, and DB are mocked).
+53 tests across 3 modules — all run fully offline with no model server required.
 
 | Module | Tests | Covers |
 |---|---|---|
@@ -412,11 +567,6 @@ register_tool(
 4. Add `"myserver"` to the `servers` list in `backend/agent_core/tool_router.py`
 5. Restart the backend — tool is live immediately
 
-**Tips for good tool descriptions:**
-- Be specific about *when* to call this tool vs similar tools
-- Describe parameters clearly — the LLM fills these from your message
-- Always set `risk` — it controls whether HITL confirmation is triggered
-
 ---
 
 ## Project Structure
@@ -429,58 +579,55 @@ localcowork-lite/
 │   ├── agent_core/
 │   │   ├── conversation.py         Agent loop — LLM ↔ tool dispatch ↔ HITL ↔ history
 │   │   ├── tool_router.py          Tool registry, risk classification, dispatch + audit
-│   │   ├── db.py                   SQLite session persistence (save/load/delete/list)
+│   │   ├── db.py                   SQLite session persistence
 │   │   └── audit.py                Async JSONL audit logger
 │   ├── inference/
 │   │   └── client.py               OpenAI-compat client (llama.cpp / Ollama / vLLM)
 │   └── mcp_servers/
-│       ├── knowledge/server.py     ChromaDB RAG — ingest, search, manage sources
+│       ├── knowledge/server.py     ChromaDB RAG
 │       ├── filesystem/server.py    Sandboxed file ops
-│       ├── document/server.py      PDF/DOCX extract, diff, PDF report generation
-│       ├── audit/server.py         Expose audit log as agent-callable tools
-│       ├── system/server.py        OS/CPU/RAM/disk via psutil
-│       └── google/server.py        Gmail + Google Calendar via Google API OAuth2
+│       ├── document/server.py      PDF/DOCX processing
+│       ├── audit/server.py         Audit log tools
+│       ├── system/server.py        OS/CPU/RAM/disk
+│       └── google/server.py        Gmail + Google Calendar
 ├── frontend/
-│   └── src/
-│       ├── App.tsx                 Chat UI — messages, tool traces, HITL dialog
-│       └── components/
-│           └── SystemInfoChart.tsx CPU/RAM radial gauges + memory pie (Recharts)
+│   ├── src/
+│   │   ├── App.tsx                 Chat UI, tool traces, HITL dialog
+│   │   └── components/
+│   │       └── SystemInfoChart.tsx CPU/RAM charts
+│   └── src-tauri/                  Tauri desktop app (Rust)
+│       ├── src/
+│       │   ├── main.rs             Entry point
+│       │   └── lib.rs              Sidecar management, Tauri commands
+│       ├── Cargo.toml
+│       └── tauri.conf.json
+├── docker/
+│   ├── Dockerfile.backend
+│   ├── Dockerfile.frontend
+│   ├── Dockerfile.model            CPU build
+│   ├── Dockerfile.model.gpu        GPU build (CUDA)
+│   └── nginx.conf
+├── docker-compose.yaml             CPU stack
+├── docker-compose.gpu.yaml         GPU stack
 ├── tests/
-│   ├── conftest.py                 Shared pytest config (asyncio_mode=auto)
-│   ├── test_db.py                  18 tests — SQLite persistence layer
-│   ├── test_tool_router.py         12 tests — tool registry and dispatch
-│   └── test_conversation.py        23 tests — agent loop and HITL
+│   ├── conftest.py
+│   ├── test_db.py
+│   ├── test_tool_router.py
+│   └── test_conversation.py
 ├── scripts/
-│   ├── setup-dev.sh                One-command setup using uv + npm
-│   └── start-model.sh              Start llama-server optimised for RTX 3060
-├── .env.example                    Config template — copy to .env
-└── pyproject.toml                  Python project + dependencies
+│   ├── setup-dev.sh
+│   └── start-model.sh
+├── .env.example
+└── pyproject.toml
 ```
 
 ---
 
-<!-- ## Comparison with Original LocalCowork
-
-| | LocalCowork (LiquidAI) | LocalCowork Lite |
-|---|---|---|
-| **Hardware** | Apple M4 Max 36GB | RTX 3060 6GB VRAM |
-| **Model** | LFM2-24B-A2B ~14.5GB | Qwen2.5-7B Q4_K_M ~4.5GB |
-| **Backend** | Rust (Tauri 2.0) | Python (FastAPI) |
-| **Frontend** | React/TypeScript | React/TypeScript |
-| **Tool count** | 75 tools / 14 servers | 21 tools / 6 servers |
-| **Google Workspace** | ❌ | ✅ Gmail + Calendar |
-| **Conversation persistence** | ❌ | ✅ SQLite-backed sessions |
-| **Human-in-the-loop** | ❌ | ✅ Risk-classified confirmation dialog |
-| **Test suite** | — | ✅ 53 tests, fully offline |
-| **Setup complexity** | High (Rust + Node + Python) | Low (Python + Node + uv) |
-
---- -->
-
 ## Known Limitations
 
 - **Multi-step chains**: reliable for 1–3 tool calls; longer chains may lose track — use specific prompts
-- **Context window**: very long email threads or large documents may hit the 32K limit; chunking helps
-- **Tool selection accuracy**: with 21 tools, occasional mis-selection happens — clear, specific prompts improve accuracy significantly
-- **Google OAuth**: token expires periodically — delete `token.json` and re-authenticate if needed
-- **Filesystem sandbox**: the agent cannot access files outside `FILESYSTEM_SANDBOX_DIR` by design
-
+- **Context window**: very long email threads or large documents may hit the 32K limit
+- **Tool selection accuracy**: with 21 tools, occasional mis-selection happens — clear prompts help
+- **Google OAuth**: uses production OAuth app — token persists long-term. If it expires, delete `token.json` and re-authenticate
+- **Tauri one-click**: `.deb` installer auto-starts model server and backend — no terminals needed
+---

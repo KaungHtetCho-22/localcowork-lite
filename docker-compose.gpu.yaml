@@ -1,0 +1,61 @@
+services:
+
+  # ── Model server (GPU) ─────────────────────────────────────────────────────
+  model:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.model.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      - llama_cache:/root/.cache/llama.cpp   # ← correct path for -hf downloads
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 600s
+    restart: unless-stopped
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    volumes:
+      - ./.data:/app/.data
+      - ./backend/mcp_servers/google:/app/backend/mcp_servers/google
+    env_file: .env
+    environment:
+      LLM_BASE_URL: http://model:8080/v1
+      FILESYSTEM_SANDBOX_DIR: /sandbox
+    ports:
+      - "8000:8000"
+    depends_on:
+      model:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# ── Named volumes ──────────────────────────────────────────────────────────
+volumes:
+  llama_cache:   

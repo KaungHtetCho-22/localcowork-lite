@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+
+  # ── Model server (CPU) ─────────────────────────────────────────────────────
+  model:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.model
+    volumes:
+      - huggingface_cache:/root/.cache/huggingface
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Backend ────────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    volumes:
+      - ./.data:/app/.data
+      - ./backend/mcp_servers/google:/app/backend/mcp_servers/google
+    env_file: .env
+    environment:
+      LLM_BASE_URL: http://model:8080/v1
+      FILESYSTEM_SANDBOX_DIR: /sandbox
+    ports:
+      - "8000:8000"
+    depends_on:
+      model:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Frontend ───────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+# ── Named volumes ──────────────────────────────────────────────────────────
+volumes:
+  huggingface_cache:
