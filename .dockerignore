@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+frontend/dist/
+.data/
+*.gguf
+*.bin
+backend/mcp_servers/google/token.json
+backend/mcp_servers/google/credentials.json
+.env
+.git/
+tests/
