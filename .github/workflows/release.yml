@@ -77,14 +77,16 @@ jobs:
       # ── Download llama-server ────────────────────────────────────────────
       - name: Download llama-server
         run: |
-          # Fetch latest release tag from ggml-org/llama.cpp (repo was moved from ggerganov)
-          LLAMA_VERSION=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest             | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          # Get latest version via redirect (avoids API rate limits)
+          LLAMA_VERSION=$(curl -sI https://github.com/ggml-org/llama.cpp/releases/latest             | grep -i "^location:" | sed 's|.*/tag/||' | tr -d '\r\n')
           echo "llama.cpp version: $LLAMA_VERSION"
 
-          curl -L "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip" -o llama-bin.zip
-          unzip llama-bin.zip -d llama-bin
+          # Ubuntu release is a .tar.gz (not .zip)
+          curl -L "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.tar.gz" -o llama-bin.tar.gz
+          tar -xzf llama-bin.tar.gz -C llama-bin --strip-components=0 2>/dev/null || mkdir -p llama-bin && tar -xzf llama-bin.tar.gz -C llama-bin
           LLAMA_SERVER=$(find llama-bin -name "llama-server" | head -1)
           echo "Found: $LLAMA_SERVER"
+          mkdir -p frontend/src-tauri/binaries
           cp "$LLAMA_SERVER" frontend/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
           chmod +x frontend/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
           echo "✓ llama-server ready"
