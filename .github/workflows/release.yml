@@ -133,6 +133,9 @@ jobs:
           print('✓ tauri.conf.json updated')
           "
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version "^2.0" --locked
+
       - name: Build Tauri .deb
         run: cd frontend && cargo tauri build
         env:
