@@ -77,8 +77,11 @@ jobs:
       # ── Download llama-server ────────────────────────────────────────────
       - name: Download llama-server
         run: |
-          LLAMA_VERSION="b4669"
-          curl -L "https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip" -o llama-bin.zip
+          # Fetch latest release tag from ggml-org/llama.cpp (repo was moved from ggerganov)
+          LLAMA_VERSION=$(curl -s https://api.github.com/repos/ggml-org/llama.cpp/releases/latest             | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          echo "llama.cpp version: $LLAMA_VERSION"
+
+          curl -L "https://github.com/ggml-org/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip" -o llama-bin.zip
           unzip llama-bin.zip -d llama-bin
           LLAMA_SERVER=$(find llama-bin -name "llama-server" | head -1)
           echo "Found: $LLAMA_SERVER"
