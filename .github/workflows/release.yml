@@ -32,11 +32,11 @@ jobs:
 
       - name: Build uvicorn-backend binary
         run: |
-          SITE_PACKAGES=$(.venv/bin/python -c "import site; print(site.getsitepackages()[0])")
+          SITE=$(.venv/bin/python -c "import site; print(site.getsitepackages()[0])")
           .venv/bin/pyinstaller --onefile \
             --name uvicorn-backend \
             --runtime-tmpdir /tmp/localcowork-lite \
-            --paths "$SITE_PACKAGES" \
+            --paths "$SITE" \
             --add-data "backend:backend" \
             --hidden-import fastapi \
             --hidden-import fastapi.middleware.cors \
@@ -71,33 +71,20 @@ jobs:
       - name: Copy uvicorn-backend to sidecar
         run: |
           mkdir -p frontend/src-tauri/binaries
-          cp dist/uvicorn-backend \
-             frontend/src-tauri/binaries/uvicorn-backend-x86_64-unknown-linux-gnu
+          cp dist/uvicorn-backend frontend/src-tauri/binaries/uvicorn-backend-x86_64-unknown-linux-gnu
           chmod +x frontend/src-tauri/binaries/uvicorn-backend-x86_64-unknown-linux-gnu
 
-      # ── Download llama-server prebuilt binary ────────────────────────────
+      # ── Download llama-server ────────────────────────────────────────────
       - name: Download llama-server
         run: |
-          # Get latest llama.cpp release tag
-          LATEST=$(curl -s https://api.github.com/repos/ggerganov/llama.cpp/releases/latest \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
-          echo "llama.cpp release: $LATEST"
-
-          # Download the Ubuntu CUDA build
-          # Use the non-CUDA build since GitHub runners don't have GPUs
-          curl -L \
-            "https://github.com/ggerganov/llama.cpp/releases/download/${LATEST}/llama-${LATEST}-bin-ubuntu-x64.zip" \
-            -o llama-bin.zip
-
+          LLAMA_VERSION="b4669"
+          curl -L "https://github.com/ggerganov/llama.cpp/releases/download/${LLAMA_VERSION}/llama-${LLAMA_VERSION}-bin-ubuntu-x64.zip" -o llama-bin.zip
           unzip llama-bin.zip -d llama-bin
-          find llama-bin -name "llama-server" | head -1
-
-          # Copy to sidecar
           LLAMA_SERVER=$(find llama-bin -name "llama-server" | head -1)
-          cp "$LLAMA_SERVER" \
-             frontend/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
+          echo "Found: $LLAMA_SERVER"
+          cp "$LLAMA_SERVER" frontend/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
           chmod +x frontend/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu
-          echo "✓ llama-server copied"
+          echo "✓ llama-server ready"
 
       # ── Tauri .deb build ─────────────────────────────────────────────────
       - name: Install Node.js
@@ -130,18 +117,16 @@ jobs:
 
       - name: Set bundle target to deb only
         run: |
-          python3 - << 'PYEOF'
+          python3 -c "
           import json
-          with open("frontend/src-tauri/tauri.conf.json") as f:
+          with open('frontend/src-tauri/tauri.conf.json') as f:
               conf = json.load(f)
           conf['bundle']['targets'] = ['deb']
-          conf['bundle']['externalBin'] = [
-              'binaries/llama-server',
-              'binaries/uvicorn-backend',
-          ]
-          with open("frontend/src-tauri/tauri.conf.json", "w") as f:
+          conf['bundle']['externalBin'] = ['binaries/llama-server', 'binaries/uvicorn-backend']
+          with open('frontend/src-tauri/tauri.conf.json', 'w') as f:
               json.dump(conf, f, indent=2)
-          PYEOF
+          print('✓ tauri.conf.json updated')
+          "
 
       - name: Build Tauri .deb
         run: cd frontend && cargo tauri build
